@@ -1,0 +1,15 @@
+*.bin
+macros/lib
+macros/names
+sci_gateway/**/*.dylib
+sci_gateway/c/loader.sce
+sci_gateway/c/cleaner.sce
+sci_gateway/c/libscidatabase*
+sci_gateway/loader_gateway.sce
+sci_gateway/cleaner_gateway.sce
+loader.sce
+unloader.sce
+cleaner.sce
+jar
+.DS_Store
+*~

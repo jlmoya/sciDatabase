@@ -1,0 +1,41 @@
+// sciDatabase — load script
+mode(-1);
+lines(0);
+
+function sciDatabaselib = startsciDatabase()
+    mprintf("Start sciDatabase\n");
+
+    etc_tlbx  = get_absolute_file_path("sciDatabase.start");
+    etc_tlbx  = getshortpathname(etc_tlbx);
+    root_tlbx = strncpy(etc_tlbx, length(etc_tlbx) - length("\etc\"));
+
+    // --- macros library ---
+    pathmacros = pathconvert(root_tlbx + "/macros", %f);
+    sciDatabaselib = lib(pathmacros);
+
+    // --- C gateway (libpq transport) ---
+    verboseMode = ilib_verbose();
+    ilib_verbose(0);
+    gw_loader = root_tlbx + "/sci_gateway/loader_gateway.sce";
+    if isfile(gw_loader) then
+        exec(gw_loader, -1);
+    end
+    ilib_verbose(verboseMode);
+
+    // --- JDBC driver(s) on the classpath (GUI / STD mode only; headless Java hangs) ---
+    if getscilabmode() == "STD" then
+        jdir = fullfile(root_tlbx, "thirdparty", "jdbc");
+        if isdir(jdir) then
+            jars = listfiles(jdir + "/*.jar");
+            for k = 1:size(jars, "*")
+                try
+                    javaclasspath(fullfile(jdir, jars(k)));
+                catch
+                end
+            end
+        end
+    end
+endfunction
+
+sciDatabaselib = startsciDatabase();
+clear startsciDatabase;
