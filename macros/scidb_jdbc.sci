@@ -6,13 +6,25 @@ function varargout = scidb_jdbc(op, varargin)
     select op
     case "connect" then
         p = varargin(1);
+        engine = convstr(scidb_field(p, "engine", "postgresql"));
         host = scidb_field(p, "host", "localhost");
-        port = scidb_field(p, "port", "5432");
+        port = scidb_field(p, "port", "");
         db   = scidb_field(p, "database", scidb_field(p, "dbname", ""));
         user = scidb_field(p, "user", "");
         pw   = scidb_field(p, "password", "");
+        select engine
+        case "postgresql" then
+            if port == "" then port = "5432"; end
+            url = "jdbc:postgresql://" + host + ":" + port + "/" + db;
+        case "mysql" then
+            if port == "" then port = "3306"; end
+            url = "jdbc:mysql://" + host + ":" + port + "/" + db;
+        case "sqlite" then
+            url = "jdbc:sqlite:" + db;            // db = file path
+        else
+            error("scidb_jdbc: no JDBC URL mapping for engine """ + engine + """");
+        end
         jimport java.sql.DriverManager;
-        url = "jdbc:postgresql://" + host + ":" + port + "/" + db;
         varargout(1) = DriverManager.getConnection(url, user, pw);
     case "query" then
         conn = varargin(1); sql = varargin(2);

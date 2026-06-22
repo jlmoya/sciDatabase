@@ -1,11 +1,9 @@
 function r = dbEngines()
-    // Registry of supported engines and transports. Extend here when adding engines.
-    // Each row: engine, paradigm, available transports, default transport.
+    // Registry of supported engines, paradigms, transports. Extend here when adding an engine.
     r = struct();
-    r.engines = "postgresql";
-    r.paradigm = struct("postgresql", "sql");
-    r.transports = struct("postgresql", ["libpq" "jdbc"]);
-    // libpq is native + works in every binary (incl. scilab-cli); JDBC needs the GUI
-    // on this build (headless Java interop hangs), so libpq is the default transport.
-    r.default_transport = struct("postgresql", "libpq");
+    r.engines = ["postgresql" "mysql" "sqlite"];
+    r.paradigm = struct("postgresql","sql", "mysql","sql", "sqlite","sql");
+    r.transports = struct("postgresql",["libpq" "jdbc"], "mysql",["mysql" "jdbc"], "sqlite",["sqlite3" "jdbc"]);
+    // native transports are universal + verified (work in scilab-cli); jdbc is GUI-only here.
+    r.default_transport = struct("postgresql","libpq", "mysql","mysql", "sqlite","sqlite3");
 endfunction

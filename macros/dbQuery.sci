@@ -3,9 +3,6 @@ function r = dbQuery(db, sql, asMatrix)
     // (numeric columns as column vectors, text as string arrays). asMatrix=%t -> numeric matrix.
     if argn(2) < 3 then asMatrix = %f; end
     if typeof(db) <> "sciDbConn" then error("dbQuery: first argument must be a dbConnect handle"); end
-    select db.transport
-    case "libpq" then r = scidb_libpq("query", db.conn, sql, asMatrix);
-    case "jdbc"  then r = scidb_jdbc("query", db.conn, sql, asMatrix);
-    else error("dbQuery: unknown transport " + db.transport);
-    end
+    f = scidb_adapter(db.transport);
+    r = f("query", db.conn, sql, asMatrix);
 endfunction
