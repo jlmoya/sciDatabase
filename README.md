@@ -3,8 +3,8 @@
 Generic database connectivity for **Scilab 2027 / macOS arm64**, built to grow across engines
 and paradigms.
 
-**Engines (this iteration):** `postgresql`, `mysql`, `sqlite` — all SQL.
-**Planned:** MongoDB + Redis (NoSQL paradigm with document/key-value verbs).
+**Engines:** `postgresql`, `mysql`, `sqlite` (SQL) · `mongodb` (document) · `redis` (key-value).
+Each handle's `paradigm` gates which verbs apply (calling an SQL verb on a Redis handle errors clearly).
 
 ## API
 ```scilab
@@ -14,6 +14,16 @@ M  = dbQuery(db, "select ...")          // SELECT -> struct keyed by column (num
 M  = dbQuery(db, "select ...", %t)      // %t -> plain numeric matrix
 n  = dbExec (db, "insert/update/...")    // DML/DDL -> rows affected
 dbClose(db)
+
+// MongoDB (document paradigm)
+r = dbFind(db, "coll" [, struct(...)])  // -> list of structs (one per matching document)
+n = dbInsert(db, "coll", struct(...))    // insert one document
+n = dbUpdate(db, "coll", filter, changes)// applies {$set: changes} -> modified count
+n = dbDelete(db, "coll", filter)         // -> deleted count
+
+// Redis (key-value paradigm)
+dbSet(db, key, val);  v = dbGet(db, key);  n = dbDel(db, key);
+r = dbCmd(db, "LPUSH", "mylist", "a", "b");   // any Redis command
 dbEngines()   // registry of engines + transports
 dbInfo(db)    // this handle's engine/transport/paradigm
 ```
@@ -28,7 +38,7 @@ dbInfo(db)    // this handle's engine/transport/paradigm
 `backend="auto"` (default) selects **libpq** (universal + verified).
 
 ## Requirements
-- native: `brew install libpq sqlite mysql` (libsqlite3 also ships with macOS).
+- native: `brew install libpq sqlite mysql hiredis mongo-c-driver`.
 - JDBC: postgresql / sqlite-jdbc / mysql-connector-j jars bundled in `thirdparty/jdbc/`.
 
 ## Test
