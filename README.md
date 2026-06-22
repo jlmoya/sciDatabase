@@ -15,6 +15,13 @@ M  = dbQuery(db, "select ...", %t)      // %t -> plain numeric matrix
 n  = dbExec (db, "insert/update/...")    // DML/DDL -> rows affected
 dbClose(db)
 
+// Prepared statements + parameter binding (SQL engines) — '?' placeholders, bound safely as
+// data (no string interpolation); '?' is auto-translated to $1,$2,... for PostgreSQL.
+r = dbQuery(db, "select * from t where x > ? and k = ?", list(200, "AAPL"))   // one-shot binding
+n = dbExec (db, "update t set v = ? where k = ?", list(99, "AAPL"))            // bound DML
+ps = dbPrepare(db, "insert into t(k,v) values(?,?)");  // prepare once, run many (fast bulk)
+dbRun(ps, list("AAPL", 212.34));  dbRun(ps, list("MSFT", 468.20));  dbFinalize(ps);
+
 // MongoDB (document paradigm)
 r = dbFind(db, "coll" [, struct(...)])  // -> list of structs (one per matching document)
 n = dbInsert(db, "coll", struct(...))    // insert one document

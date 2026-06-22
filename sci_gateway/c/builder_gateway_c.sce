@@ -6,12 +6,21 @@ path_builder = get_absolute_file_path("builder_gateway_c.sce");
 // (scilab name, C function) pairs
 table = [ "db_libpq_connect",  "sci_db_libpq_connect"  ; ..
           "db_libpq_exec",     "sci_db_libpq_exec"     ; ..
+          "db_libpq_prepare",  "sci_db_libpq_prepare"  ; ..
+          "db_libpq_run",      "sci_db_libpq_run"      ; ..
+          "db_libpq_finalize", "sci_db_libpq_finalize" ; ..
           "db_libpq_close",    "sci_db_libpq_close"    ; ..
           "db_sqlite_connect", "sci_db_sqlite_connect" ; ..
           "db_sqlite_exec",    "sci_db_sqlite_exec"    ; ..
+          "db_sqlite_prepare", "sci_db_sqlite_prepare" ; ..
+          "db_sqlite_run",     "sci_db_sqlite_run"     ; ..
+          "db_sqlite_finalize","sci_db_sqlite_finalize"; ..
           "db_sqlite_close",   "sci_db_sqlite_close"   ; ..
           "db_mysql_connect",  "sci_db_mysql_connect"  ; ..
           "db_mysql_exec",     "sci_db_mysql_exec"     ; ..
+          "db_mysql_prepare",  "sci_db_mysql_prepare"  ; ..
+          "db_mysql_run",      "sci_db_mysql_run"      ; ..
+          "db_mysql_finalize", "sci_db_mysql_finalize" ; ..
           "db_mysql_close",    "sci_db_mysql_close"    ; ..
           "db_redis_connect",  "sci_db_redis_connect"  ; ..
           "db_redis_command",  "sci_db_redis_command"  ; ..

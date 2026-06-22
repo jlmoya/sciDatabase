@@ -13,6 +13,15 @@ function varargout = scidb_sqlite(op, varargin)
     case "exec" then
         [rc, data, cols] = db_sqlite_exec(varargin(1), varargin(2));
         varargout(1) = rc;
+    case "prepare" then
+        varargout(1) = db_sqlite_prepare(varargin(1), varargin(2));
+    case "run" then
+        asMatrix = %f; if size(varargin) >= 3 then asMatrix = varargin(3); end
+        [rc, data, cols] = db_sqlite_run(varargin(1), varargin(2));
+        if size(cols, "*") == 0 then varargout(1) = rc;
+        else varargout(1) = scidb_toStruct(data, cols, asMatrix); end
+    case "finalize" then
+        db_sqlite_finalize(varargin(1)); varargout(1) = [];
     case "close" then
         db_sqlite_close(varargin(1)); varargout(1) = [];
     else error("scidb_sqlite: unknown op """ + string(op) + """");

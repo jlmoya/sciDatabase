@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include "api_scilab.h"
 #include "Scierror.h"
 #include "sci_malloc.h"
@@ -117,6 +118,119 @@ int sci_db_mysql_exec(char* fname, void* pvApiCtx)
     AssignOutputVariable(pvApiCtx, 1) = nbInputArgument(pvApiCtx) + 3;
     AssignOutputVariable(pvApiCtx, 2) = nbInputArgument(pvApiCtx) + 1;
     AssignOutputVariable(pvApiCtx, 3) = nbInputArgument(pvApiCtx) + 2;
+    ReturnArguments(pvApiCtx);
+    return 0;
+}
+
+/* ---- prepared statements ---- */
+#define DB_MAXSTMT 256
+static MYSQL_STMT* g_my_stmt[DB_MAXSTMT] = {0};
+
+int sci_db_mysql_prepare(char* fname, void* pvApiCtx)
+{
+    double did = 0.0; int slot, st = -1, i; char* sql = NULL; MYSQL_STMT* stmt;
+    CheckInputArgument(pvApiCtx, 2, 2); CheckOutputArgument(pvApiCtx, 1, 1);
+    if (my_get_double(pvApiCtx, 1, &did)) { Scierror(999, _("%s: first argument must be a connection id.\n"), fname); return 0; }
+    slot = (int)did - 1;
+    if (slot < 0 || slot >= DB_MAXMY || g_my[slot] == NULL) { Scierror(999, _("%s: invalid or closed connection id.\n"), fname); return 0; }
+    if (my_get_string(pvApiCtx, 2, &sql)) { Scierror(999, _("%s: second argument must be an SQL string.\n"), fname); return 0; }
+    stmt = mysql_stmt_init(g_my[slot]);
+    if (stmt == NULL) { freeAllocatedSingleString(sql); Scierror(999, _("%s: mysql_stmt_init failed.\n"), fname); return 0; }
+    if (mysql_stmt_prepare(stmt, sql, (unsigned long)strlen(sql)) != 0) {
+        char m[2048]; snprintf(m, sizeof(m), "%s", mysql_stmt_error(stmt));
+        mysql_stmt_close(stmt); freeAllocatedSingleString(sql);
+        Scierror(999, _("%s: prepare failed: %s\n"), fname, m); return 0;
+    }
+    freeAllocatedSingleString(sql);
+    for (i = 0; i < DB_MAXSTMT; i++) if (g_my_stmt[i] == NULL) { st = i; break; }
+    if (st < 0) { mysql_stmt_close(stmt); Scierror(999, _("%s: too many prepared statements.\n"), fname); return 0; }
+    g_my_stmt[st] = stmt;
+    createScalarDouble(pvApiCtx, nbInputArgument(pvApiCtx) + 1, (double)(st + 1));
+    AssignOutputVariable(pvApiCtx, 1) = nbInputArgument(pvApiCtx) + 1;
+    ReturnArguments(pvApiCtx);
+    return 0;
+}
+
+int sci_db_mysql_run(char* fname, void* pvApiCtx)
+{
+    double dst = 0.0; int st, m = 0, n = 0, i, j, np = 0; int* piAddr = NULL; char** params = NULL;
+    MYSQL_STMT* stmt; MYSQL_RES* meta; SciErr se; bool aupd = 1;
+    MYSQL_BIND* pbind = NULL; unsigned long* plen = NULL;
+    CheckInputArgument(pvApiCtx, 2, 2); CheckOutputArgument(pvApiCtx, 1, 3);
+    if (my_get_double(pvApiCtx, 1, &dst)) { Scierror(999, _("%s: first argument must be a statement handle.\n"), fname); return 0; }
+    st = (int)dst - 1;
+    if (st < 0 || st >= DB_MAXSTMT || g_my_stmt[st] == NULL) { Scierror(999, _("%s: invalid or finalized statement.\n"), fname); return 0; }
+    stmt = g_my_stmt[st];
+    se = getVarAddressFromPosition(pvApiCtx, 2, &piAddr);
+    if (!se.iErr && isStringType(pvApiCtx, piAddr) && getAllocatedMatrixOfString(pvApiCtx, piAddr, &m, &n, &params) == 0) np = m * n;
+    if (np > 0) {
+        pbind = (MYSQL_BIND*)calloc(np, sizeof(MYSQL_BIND));
+        plen  = (unsigned long*)malloc(np * sizeof(unsigned long));
+        for (i = 0; i < np; i++) {
+            plen[i] = (unsigned long)strlen(params[i]);
+            pbind[i].buffer_type = MYSQL_TYPE_STRING; pbind[i].buffer = params[i];
+            pbind[i].buffer_length = plen[i]; pbind[i].length = &plen[i];
+        }
+        mysql_stmt_bind_param(stmt, pbind);
+    }
+    mysql_stmt_attr_set(stmt, STMT_ATTR_UPDATE_MAX_LENGTH, &aupd);
+    if (mysql_stmt_execute(stmt) != 0) {
+        char msg[2048]; snprintf(msg, sizeof(msg), "%s", mysql_stmt_error(stmt));
+        if (pbind) free(pbind); if (plen) free(plen); if (params) freeAllocatedMatrixOfString(m, n, params);
+        Scierror(999, _("%s: execute failed: %s\n"), fname, msg); return 0;
+    }
+    meta = mysql_stmt_result_metadata(stmt);
+    if (meta != NULL) {
+        int nc = (int)mysql_num_fields(meta), nr, row = 0;
+        MYSQL_FIELD* fields; MYSQL_BIND* rbind; char** rbuf; unsigned long* rlen; bool* risnull; char** cols; char** data;
+        mysql_stmt_store_result(stmt);
+        nr = (int)mysql_stmt_num_rows(stmt);
+        fields = mysql_fetch_fields(meta);
+        rbind   = (MYSQL_BIND*)calloc(nc, sizeof(MYSQL_BIND));
+        rbuf    = (char**)malloc(nc * sizeof(char*));
+        rlen    = (unsigned long*)malloc(nc * sizeof(unsigned long));
+        risnull = (bool*)malloc(nc * sizeof(bool));
+        cols    = (char**)malloc((nc > 0 ? nc : 1) * sizeof(char*));
+        data    = (char**)malloc((nr * nc > 0 ? nr * nc : 1) * sizeof(char*));
+        for (j = 0; j < nc; j++) {
+            unsigned long sz = fields[j].max_length + 1; if (sz < 1) sz = 1;
+            rbuf[j] = (char*)malloc(sz); cols[j] = strdup(fields[j].name);
+            rbind[j].buffer_type = MYSQL_TYPE_STRING; rbind[j].buffer = rbuf[j];
+            rbind[j].buffer_length = sz; rbind[j].length = &rlen[j]; rbind[j].is_null = &risnull[j];
+        }
+        mysql_stmt_bind_result(stmt, rbind);
+        while (mysql_stmt_fetch(stmt) == 0) {
+            for (j = 0; j < nc; j++) data[j * nr + row] = risnull[j] ? strdup("") : strndup(rbuf[j], rlen[j]);
+            row++;
+        }
+        createMatrixOfString(pvApiCtx, nbInputArgument(pvApiCtx) + 1, nr, nc, data);
+        createMatrixOfString(pvApiCtx, nbInputArgument(pvApiCtx) + 2, (nc > 0) ? 1 : 0, nc, cols);
+        createScalarDouble(pvApiCtx, nbInputArgument(pvApiCtx) + 3, (double)nr);
+        for (i = 0; i < nr * nc; i++) free(data[i]); free(data);
+        for (j = 0; j < nc; j++) { free(cols[j]); free(rbuf[j]); }
+        free(cols); free(rbuf); free(rlen); free(risnull); free(rbind);
+        mysql_free_result(meta); mysql_stmt_free_result(stmt);
+    } else {
+        createScalarDouble(pvApiCtx, nbInputArgument(pvApiCtx) + 3, (double)mysql_stmt_affected_rows(stmt));
+        createEmptyMatrix(pvApiCtx, nbInputArgument(pvApiCtx) + 1);
+        createEmptyMatrix(pvApiCtx, nbInputArgument(pvApiCtx) + 2);
+    }
+    if (pbind) free(pbind); if (plen) free(plen); if (params) freeAllocatedMatrixOfString(m, n, params);
+    AssignOutputVariable(pvApiCtx, 1) = nbInputArgument(pvApiCtx) + 3;
+    AssignOutputVariable(pvApiCtx, 2) = nbInputArgument(pvApiCtx) + 1;
+    AssignOutputVariable(pvApiCtx, 3) = nbInputArgument(pvApiCtx) + 2;
+    ReturnArguments(pvApiCtx);
+    return 0;
+}
+
+int sci_db_mysql_finalize(char* fname, void* pvApiCtx)
+{
+    double dst = 0.0; int st;
+    CheckInputArgument(pvApiCtx, 1, 1); CheckOutputArgument(pvApiCtx, 0, 1);
+    if (my_get_double(pvApiCtx, 1, &dst)) { Scierror(999, _("%s: argument must be a statement handle.\n"), fname); return 0; }
+    st = (int)dst - 1;
+    if (st >= 0 && st < DB_MAXSTMT && g_my_stmt[st] != NULL) { mysql_stmt_close(g_my_stmt[st]); g_my_stmt[st] = NULL; }
+    AssignOutputVariable(pvApiCtx, 1) = 0;
     ReturnArguments(pvApiCtx);
     return 0;
 }

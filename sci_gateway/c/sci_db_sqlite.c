@@ -119,6 +119,100 @@ int sci_db_sqlite_exec(char* fname, void* pvApiCtx)
     return 0;
 }
 
+/* ---- prepared statements ---- */
+#define DB_MAXSTMT 256
+static sqlite3_stmt* g_sq_stmt[DB_MAXSTMT] = {0};
+
+/* execute a prepared (and already param-bound) statement, emit [rc,data,cols] at +1/+2/+3 */
+static void sq_collect(void* pvApiCtx, sqlite3_stmt* stmt)
+{
+    int nc = sqlite3_column_count(stmt), i, j, rc;
+    if (nc == 0) {
+        sqlite3_step(stmt);
+        createScalarDouble(pvApiCtx, nbInputArgument(pvApiCtx) + 3, (double)sqlite3_changes(sqlite3_db_handle(stmt)));
+        createEmptyMatrix(pvApiCtx, nbInputArgument(pvApiCtx) + 1);
+        createEmptyMatrix(pvApiCtx, nbInputArgument(pvApiCtx) + 2);
+    } else {
+        int cap = 16, nr = 0;
+        char** cells = (char**)malloc(sizeof(char*) * cap * nc);
+        char** cols  = (char**)malloc(sizeof(char*) * nc);
+        char** data;
+        for (j = 0; j < nc; j++) cols[j] = strdup(sqlite3_column_name(stmt, j));
+        while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+            if (nr >= cap) { cap *= 2; cells = (char**)realloc(cells, sizeof(char*) * cap * nc); }
+            for (j = 0; j < nc; j++) { const unsigned char* t = sqlite3_column_text(stmt, j); cells[nr * nc + j] = strdup(t ? (const char*)t : ""); }
+            nr++;
+        }
+        data = (char**)malloc(sizeof(char*) * (nr * nc > 0 ? nr * nc : 1));
+        for (j = 0; j < nc; j++) for (i = 0; i < nr; i++) data[j * nr + i] = cells[i * nc + j];
+        createMatrixOfString(pvApiCtx, nbInputArgument(pvApiCtx) + 1, nr, nc, data);
+        createMatrixOfString(pvApiCtx, nbInputArgument(pvApiCtx) + 2, (nc > 0) ? 1 : 0, nc, cols);
+        createScalarDouble(pvApiCtx, nbInputArgument(pvApiCtx) + 3, (double)nr);
+        free(data);
+        for (i = 0; i < nr * nc; i++) free(cells[i]); free(cells);
+        for (j = 0; j < nc; j++) free(cols[j]); free(cols);
+    }
+}
+
+int sci_db_sqlite_prepare(char* fname, void* pvApiCtx)
+{
+    double did = 0.0; int slot, st = -1, i; char* sql = NULL; sqlite3_stmt* stmt = NULL;
+    CheckInputArgument(pvApiCtx, 2, 2); CheckOutputArgument(pvApiCtx, 1, 1);
+    if (sq_get_double(pvApiCtx, 1, &did)) { Scierror(999, _("%s: first argument must be a connection id.\n"), fname); return 0; }
+    slot = (int)did - 1;
+    if (slot < 0 || slot >= DB_MAXSQ || g_sq[slot] == NULL) { Scierror(999, _("%s: invalid or closed connection id.\n"), fname); return 0; }
+    if (sq_get_string(pvApiCtx, 2, &sql)) { Scierror(999, _("%s: second argument must be an SQL string.\n"), fname); return 0; }
+    if (sqlite3_prepare_v2(g_sq[slot], sql, -1, &stmt, NULL) != SQLITE_OK) {
+        char m[2048]; snprintf(m, sizeof(m), "%s", sqlite3_errmsg(g_sq[slot]));
+        freeAllocatedSingleString(sql); Scierror(999, _("%s: prepare failed: %s\n"), fname, m); return 0;
+    }
+    freeAllocatedSingleString(sql);
+    for (i = 0; i < DB_MAXSTMT; i++) if (g_sq_stmt[i] == NULL) { st = i; break; }
+    if (st < 0) { sqlite3_finalize(stmt); Scierror(999, _("%s: too many prepared statements.\n"), fname); return 0; }
+    g_sq_stmt[st] = stmt;
+    createScalarDouble(pvApiCtx, nbInputArgument(pvApiCtx) + 1, (double)(st + 1));
+    AssignOutputVariable(pvApiCtx, 1) = nbInputArgument(pvApiCtx) + 1;
+    ReturnArguments(pvApiCtx);
+    return 0;
+}
+
+int sci_db_sqlite_run(char* fname, void* pvApiCtx)
+{
+    double dst = 0.0; int st, m = 0, n = 0, i, np; int* piAddr = NULL; char** params = NULL;
+    sqlite3_stmt* stmt; SciErr se;
+    CheckInputArgument(pvApiCtx, 2, 2); CheckOutputArgument(pvApiCtx, 1, 3);
+    if (sq_get_double(pvApiCtx, 1, &dst)) { Scierror(999, _("%s: first argument must be a statement handle.\n"), fname); return 0; }
+    st = (int)dst - 1;
+    if (st < 0 || st >= DB_MAXSTMT || g_sq_stmt[st] == NULL) { Scierror(999, _("%s: invalid or finalized statement.\n"), fname); return 0; }
+    stmt = g_sq_stmt[st];
+    sqlite3_reset(stmt); sqlite3_clear_bindings(stmt);
+    se = getVarAddressFromPosition(pvApiCtx, 2, &piAddr);
+    if (!se.iErr && isStringType(pvApiCtx, piAddr) && getAllocatedMatrixOfString(pvApiCtx, piAddr, &m, &n, &params) == 0) {
+        np = m * n;
+        for (i = 0; i < np; i++) sqlite3_bind_text(stmt, i + 1, params[i], -1, SQLITE_TRANSIENT);
+        freeAllocatedMatrixOfString(m, n, params);
+    }
+    sq_collect(pvApiCtx, stmt);
+    sqlite3_reset(stmt);
+    AssignOutputVariable(pvApiCtx, 1) = nbInputArgument(pvApiCtx) + 3;
+    AssignOutputVariable(pvApiCtx, 2) = nbInputArgument(pvApiCtx) + 1;
+    AssignOutputVariable(pvApiCtx, 3) = nbInputArgument(pvApiCtx) + 2;
+    ReturnArguments(pvApiCtx);
+    return 0;
+}
+
+int sci_db_sqlite_finalize(char* fname, void* pvApiCtx)
+{
+    double dst = 0.0; int st;
+    CheckInputArgument(pvApiCtx, 1, 1); CheckOutputArgument(pvApiCtx, 0, 1);
+    if (sq_get_double(pvApiCtx, 1, &dst)) { Scierror(999, _("%s: argument must be a statement handle.\n"), fname); return 0; }
+    st = (int)dst - 1;
+    if (st >= 0 && st < DB_MAXSTMT && g_sq_stmt[st] != NULL) { sqlite3_finalize(g_sq_stmt[st]); g_sq_stmt[st] = NULL; }
+    AssignOutputVariable(pvApiCtx, 1) = 0;
+    ReturnArguments(pvApiCtx);
+    return 0;
+}
+
 int sci_db_sqlite_close(char* fname, void* pvApiCtx)
 {
     double did = 0.0; int slot;
