@@ -1,11 +1,11 @@
 Toolbox: sciDatabase
 Title: sciDatabase
-Summary: Generic database connectivity for Scilab (PostgreSQL via libpq + JDBC)
-Version: 0.1.0
+Summary: Generic multi-engine database connectivity for Scilab (PostgreSQL, MySQL, SQLite, MongoDB, Redis)
+Version: 1.0.0
 Author: Jose Moya
 Maintainer: Jose Moya
 Category: Data Handling
 License: BSD-3-Clause
 ScilabVersion: >= 2025.1.0
 Depends:
-Date: 2026-06-22
+Date: 2026-06-24
