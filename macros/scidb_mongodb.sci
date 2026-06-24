@@ -25,6 +25,8 @@ function varargout = scidb_mongodb(op, varargin)
         varargout(1) = db_mongo_update(varargin(1), varargin(2), fjson, ujson);
     case "delete" then
         varargout(1) = db_mongo_delete(varargin(1), varargin(2), scidb_jsonwrite(varargin(3)));
+    case "collections" then
+        varargout(1) = db_mongo_collections(varargin(1));
     case "close" then
         db_mongo_close(varargin(1)); varargout(1) = [];
     else error("scidb_mongodb: unknown op """ + string(op) + """");

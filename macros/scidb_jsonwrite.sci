@@ -4,11 +4,15 @@ function js = scidb_jsonwrite(v)
     select typeof(v)
     case "st" then
         f = fieldnames(v);
-        parts = [];
-        for i = 1:size(f, "*")
-            parts = [parts, scidb_jstr(f(i)) + ":" + scidb_jsonwrite(v(f(i)))];
+        if size(f, "*") == 0 then
+            js = "{}";                        // empty struct -> match-all filter / empty document
+        else
+            parts = [];
+            for i = 1:size(f, "*")
+                parts = [parts, scidb_jstr(f(i)) + ":" + scidb_jsonwrite(v(f(i)))];
+            end
+            js = "{" + strcat(parts, ",") + "}";
         end
-        js = "{" + strcat(parts, ",") + "}";
     case "string" then
         if size(v, "*") <= 1 then
             js = scidb_jstr(v);

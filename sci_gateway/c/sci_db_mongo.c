@@ -152,6 +152,28 @@ int sci_db_mongo_insert(char* fname, void* pvApiCtx) { CheckInputArgument(pvApiC
 int sci_db_mongo_update(char* fname, void* pvApiCtx) { CheckInputArgument(pvApiCtx, 4, 4); CheckOutputArgument(pvApiCtx, 1, 1); return mg_write(fname, pvApiCtx, 1); }
 int sci_db_mongo_delete(char* fname, void* pvApiCtx) { CheckInputArgument(pvApiCtx, 3, 3); CheckOutputArgument(pvApiCtx, 1, 1); return mg_write(fname, pvApiCtx, 2); }
 
+int sci_db_mongo_collections(char* fname, void* pvApiCtx)
+{
+    int slot, n = 0; mongoc_client_t* client; mongoc_database_t* database;
+    char** names; bson_error_t error;
+    CheckInputArgument(pvApiCtx, 1, 1);
+    CheckOutputArgument(pvApiCtx, 1, 1);
+    client = mg_client(pvApiCtx, fname, &slot); if (!client) return 0;
+    database = mongoc_client_get_database(client, g_mgdb[slot]);
+    names = mongoc_database_get_collection_names_with_opts(database, NULL, &error);
+    if (names == NULL) {
+        mongoc_database_destroy(database);
+        Scierror(999, _("%s: list collections failed: %s\n"), fname, error.message); return 0;
+    }
+    while (names[n] != NULL) n++;
+    createMatrixOfString(pvApiCtx, nbInputArgument(pvApiCtx) + 1, n, (n > 0) ? 1 : 0, names);
+    bson_strfreev(names);
+    mongoc_database_destroy(database);
+    AssignOutputVariable(pvApiCtx, 1) = nbInputArgument(pvApiCtx) + 1;
+    ReturnArguments(pvApiCtx);
+    return 0;
+}
+
 int sci_db_mongo_close(char* fname, void* pvApiCtx)
 {
     int slot;
