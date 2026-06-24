@@ -124,20 +124,22 @@ static int mg_write(char* fname, void* pvApiCtx, int kind)
     client = mg_client(pvApiCtx, fname, &slot); if (!client) return 0;
     if (mg_get_string(pvApiCtx, 2, &coll)) { Scierror(999, _("%s: collection name expected.\n"), fname); return 0; }
     if (mg_get_string(pvApiCtx, 3, &j1)) { freeAllocatedSingleString(coll); Scierror(999, _("%s: JSON argument expected.\n"), fname); return 0; }
-    if (kind == 1) { if (mg_get_string(pvApiCtx, 4, &j2)) { freeAllocatedSingleString(coll); freeAllocatedSingleString(j1); Scierror(999, _("%s: update JSON expected.\n"), fname); return 0; } }
+    if (kind == 1 || kind == 3) { if (mg_get_string(pvApiCtx, 4, &j2)) { freeAllocatedSingleString(coll); freeAllocatedSingleString(j1); Scierror(999, _("%s: update JSON expected.\n"), fname); return 0; } }
     collection = mongoc_client_get_collection(client, g_mgdb[slot], coll);
     freeAllocatedSingleString(coll);
     b1 = bson_new_from_json((const uint8_t*)j1, -1, &error);
     freeAllocatedSingleString(j1);
     if (!b1) { if (j2) freeAllocatedSingleString(j2); mongoc_collection_destroy(collection); Scierror(999, _("%s: bad JSON: %s\n"), fname, error.message); return 0; }
-    if (kind == 1) { b2 = bson_new_from_json((const uint8_t*)j2, -1, &error); freeAllocatedSingleString(j2);
+    if (kind == 1 || kind == 3) { b2 = bson_new_from_json((const uint8_t*)j2, -1, &error); freeAllocatedSingleString(j2);
         if (!b2) { bson_destroy(b1); mongoc_collection_destroy(collection); Scierror(999, _("%s: bad update JSON: %s\n"), fname, error.message); return 0; } }
 
     if (kind == 0) { ok = mongoc_collection_insert_one(collection, b1, NULL, &reply, &error); cnt = ok ? 1.0 : 0.0; cntkey = NULL; }
     else if (kind == 1) { ok = mongoc_collection_update_many(collection, b1, b2, NULL, &reply, &error); cntkey = "modifiedCount"; }
+    else if (kind == 3) { bson_t* uo = BCON_NEW("upsert", BCON_BOOL(true)); ok = mongoc_collection_update_many(collection, b1, b2, uo, &reply, &error); bson_destroy(uo); cntkey = "modifiedCount"; }
     else { ok = mongoc_collection_delete_many(collection, b1, NULL, &reply, &error); cntkey = "deletedCount"; }
 
     if (ok && cntkey && bson_iter_init_find(&it, &reply, cntkey)) cnt = (double)bson_iter_as_int64(&it);
+    if (ok && kind == 3 && bson_iter_init_find(&it, &reply, "upsertedCount")) cnt += (double)bson_iter_as_int64(&it);
     bson_destroy(&reply); bson_destroy(b1); if (b2) bson_destroy(b2);
     mongoc_collection_destroy(collection);
     if (!ok) { Scierror(999, _("%s: operation failed: %s\n"), fname, error.message); return 0; }
@@ -151,6 +153,64 @@ static int mg_write(char* fname, void* pvApiCtx, int kind)
 int sci_db_mongo_insert(char* fname, void* pvApiCtx) { CheckInputArgument(pvApiCtx, 3, 3); CheckOutputArgument(pvApiCtx, 1, 1); return mg_write(fname, pvApiCtx, 0); }
 int sci_db_mongo_update(char* fname, void* pvApiCtx) { CheckInputArgument(pvApiCtx, 4, 4); CheckOutputArgument(pvApiCtx, 1, 1); return mg_write(fname, pvApiCtx, 1); }
 int sci_db_mongo_delete(char* fname, void* pvApiCtx) { CheckInputArgument(pvApiCtx, 3, 3); CheckOutputArgument(pvApiCtx, 1, 1); return mg_write(fname, pvApiCtx, 2); }
+int sci_db_mongo_upsert(char* fname, void* pvApiCtx) { CheckInputArgument(pvApiCtx, 4, 4); CheckOutputArgument(pvApiCtx, 1, 1); return mg_write(fname, pvApiCtx, 3); }
+
+int sci_db_mongo_count(char* fname, void* pvApiCtx)
+{
+    int slot; char* coll = NULL; char* fjson = NULL;
+    mongoc_client_t* client; mongoc_collection_t* collection;
+    bson_t* filter; bson_error_t error; int64_t cnt;
+    CheckInputArgument(pvApiCtx, 3, 3);   /* id, coll, filterJson */
+    CheckOutputArgument(pvApiCtx, 1, 1);
+    client = mg_client(pvApiCtx, fname, &slot); if (!client) return 0;
+    if (mg_get_string(pvApiCtx, 2, &coll) || mg_get_string(pvApiCtx, 3, &fjson)) { Scierror(999, _("%s: expected (id, collection, filterJson).\n"), fname); return 0; }
+    filter = bson_new_from_json((const uint8_t*)fjson, -1, &error);
+    freeAllocatedSingleString(fjson);
+    if (!filter) { freeAllocatedSingleString(coll); Scierror(999, _("%s: bad filter JSON: %s\n"), fname, error.message); return 0; }
+    collection = mongoc_client_get_collection(client, g_mgdb[slot], coll);
+    freeAllocatedSingleString(coll);
+    cnt = mongoc_collection_count_documents(collection, filter, NULL, NULL, NULL, &error);
+    bson_destroy(filter); mongoc_collection_destroy(collection);
+    if (cnt < 0) { Scierror(999, _("%s: count failed: %s\n"), fname, error.message); return 0; }
+    createScalarDouble(pvApiCtx, nbInputArgument(pvApiCtx) + 1, (double)cnt);
+    AssignOutputVariable(pvApiCtx, 1) = nbInputArgument(pvApiCtx) + 1;
+    ReturnArguments(pvApiCtx);
+    return 0;
+}
+
+int sci_db_mongo_aggregate(char* fname, void* pvApiCtx)
+{
+    int slot, n = 0, cap = 16, i; char* coll = NULL; char* pjson = NULL;
+    mongoc_client_t* client; mongoc_collection_t* collection; mongoc_cursor_t* cursor;
+    bson_t* pipeline; const bson_t* doc; bson_error_t error; char** docs;
+    CheckInputArgument(pvApiCtx, 3, 3);   /* id, coll, {"pipeline":[...]} */
+    CheckOutputArgument(pvApiCtx, 1, 1);
+    client = mg_client(pvApiCtx, fname, &slot); if (!client) return 0;
+    if (mg_get_string(pvApiCtx, 2, &coll) || mg_get_string(pvApiCtx, 3, &pjson)) { Scierror(999, _("%s: expected (id, collection, pipelineJson).\n"), fname); return 0; }
+    pipeline = bson_new_from_json((const uint8_t*)pjson, -1, &error);
+    freeAllocatedSingleString(pjson);
+    if (!pipeline) { freeAllocatedSingleString(coll); Scierror(999, _("%s: bad pipeline JSON: %s\n"), fname, error.message); return 0; }
+    collection = mongoc_client_get_collection(client, g_mgdb[slot], coll);
+    freeAllocatedSingleString(coll);
+    cursor = mongoc_collection_aggregate(collection, MONGOC_QUERY_NONE, pipeline, NULL, NULL);
+    docs = (char**)malloc(sizeof(char*) * cap);
+    while (mongoc_cursor_next(cursor, &doc)) {
+        if (n >= cap) { cap *= 2; docs = (char**)realloc(docs, sizeof(char*) * cap); }
+        docs[n++] = bson_as_relaxed_extended_json(doc, NULL);
+    }
+    if (mongoc_cursor_error(cursor, &error)) {
+        for (i = 0; i < n; i++) bson_free(docs[i]); free(docs);
+        mongoc_cursor_destroy(cursor); bson_destroy(pipeline); mongoc_collection_destroy(collection);
+        Scierror(999, _("%s: aggregate failed: %s\n"), fname, error.message); return 0;
+    }
+    createMatrixOfString(pvApiCtx, nbInputArgument(pvApiCtx) + 1, n, (n > 0) ? 1 : 0, docs);
+    for (i = 0; i < n; i++) bson_free(docs[i]);
+    free(docs);
+    mongoc_cursor_destroy(cursor); bson_destroy(pipeline); mongoc_collection_destroy(collection);
+    AssignOutputVariable(pvApiCtx, 1) = nbInputArgument(pvApiCtx) + 1;
+    ReturnArguments(pvApiCtx);
+    return 0;
+}
 
 int sci_db_mongo_collections(char* fname, void* pvApiCtx)
 {

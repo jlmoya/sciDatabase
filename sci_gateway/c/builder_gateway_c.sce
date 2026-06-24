@@ -30,6 +30,9 @@ table = [ "db_libpq_connect",  "sci_db_libpq_connect"  ; ..
           "db_mongo_insert",   "sci_db_mongo_insert"   ; ..
           "db_mongo_update",   "sci_db_mongo_update"   ; ..
           "db_mongo_delete",   "sci_db_mongo_delete"   ; ..
+          "db_mongo_upsert",   "sci_db_mongo_upsert"   ; ..
+          "db_mongo_count",    "sci_db_mongo_count"    ; ..
+          "db_mongo_aggregate","sci_db_mongo_aggregate"; ..
           "db_mongo_collections", "sci_db_mongo_collections" ; ..
           "db_mongo_close",    "sci_db_mongo_close"    ];
 

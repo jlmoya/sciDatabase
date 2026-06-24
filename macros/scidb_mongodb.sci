@@ -25,6 +25,21 @@ function varargout = scidb_mongodb(op, varargin)
         varargout(1) = db_mongo_update(varargin(1), varargin(2), fjson, ujson);
     case "delete" then
         varargout(1) = db_mongo_delete(varargin(1), varargin(2), scidb_jsonwrite(varargin(3)));
+    case "upsert" then
+        fjson = scidb_jsonwrite(varargin(3));
+        ujson = "{""$set"":" + scidb_jsonwrite(varargin(4)) + "}";
+        varargout(1) = db_mongo_upsert(varargin(1), varargin(2), fjson, ujson);
+    case "count" then
+        filt = varargin(3);
+        if typeof(filt) <> "st" then fjson = "{}";
+        elseif size(fieldnames(filt), "*") == 0 then fjson = "{}";
+        else fjson = scidb_jsonwrite(filt); end
+        varargout(1) = db_mongo_count(varargin(1), varargin(2), fjson);
+    case "aggregate" then
+        docs = db_mongo_aggregate(varargin(1), varargin(2), "{""pipeline"":" + varargin(3) + "}");
+        res = list();
+        for i = 1:size(docs, "*"), res(i) = scidb_jsonparse(docs(i)); end
+        varargout(1) = res;
     case "collections" then
         varargout(1) = db_mongo_collections(varargin(1));
     case "close" then
