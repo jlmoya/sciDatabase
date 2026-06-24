@@ -20,8 +20,8 @@ function varargout = scidb_libpq(op, varargin)
     case "prepare" then
         varargout(1) = db_libpq_prepare(varargin(1), varargin(2));
     case "run" then
-        asMatrix = %f; if size(varargin) >= 3 then asMatrix = varargin(3); end
-        [rc, data, cols] = db_libpq_run(varargin(1), varargin(2));
+        asMatrix = %f; if size(varargin) >= 4 then asMatrix = varargin(4); end
+        [rc, data, cols] = db_libpq_run(varargin(1), varargin(2), varargin(3));
         if size(cols, "*") == 0 then varargout(1) = rc;
         else varargout(1) = scidb_toStruct(data, cols, asMatrix); end
     case "finalize" then

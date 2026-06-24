@@ -7,7 +7,7 @@ function r = dbRun(ps, params, asMatrix)
     end
     if argn(2) < 2 then params = []; end
     if argn(2) < 3 then asMatrix = %f; end
-    pv = scidb_paramvec(params);
+    [pv, mask] = scidb_paramvec(params);
     f = scidb_adapter(ps.transport);
-    r = f("run", ps.stmt, pv, asMatrix);
+    r = f("run", ps.stmt, pv, mask, asMatrix);
 endfunction

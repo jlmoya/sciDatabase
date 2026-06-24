@@ -10,5 +10,5 @@ function ps = dbPrepare(db, sql)
     sql2 = scidb_bindsql(db.transport, sql);
     f = scidb_adapter(db.transport);
     stmt = f("prepare", db.conn, sql2);
-    ps = tlist(["sciDbStmt", "engine", "transport", "stmt"], db.engine, db.transport, stmt);
+    ps = tlist(["sciDbStmt", "engine", "transport", "stmt", "conn"], db.engine, db.transport, stmt, db.conn);
 endfunction

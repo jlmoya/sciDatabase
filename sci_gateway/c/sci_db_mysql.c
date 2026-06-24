@@ -156,11 +156,16 @@ int sci_db_mysql_run(char* fname, void* pvApiCtx)
     double dst = 0.0; int st, m = 0, n = 0, i, j, np = 0; int* piAddr = NULL; char** params = NULL;
     MYSQL_STMT* stmt; MYSQL_RES* meta; SciErr se; bool aupd = 1;
     MYSQL_BIND* pbind = NULL; unsigned long* plen = NULL;
-    CheckInputArgument(pvApiCtx, 2, 2); CheckOutputArgument(pvApiCtx, 1, 3);
+    double* mask = NULL; int mlen = 0; int* pmask = NULL;
+    CheckInputArgument(pvApiCtx, 2, 3); CheckOutputArgument(pvApiCtx, 1, 3);
     if (my_get_double(pvApiCtx, 1, &dst)) { Scierror(999, _("%s: first argument must be a statement handle.\n"), fname); return 0; }
     st = (int)dst - 1;
     if (st < 0 || st >= DB_MAXSTMT || g_my_stmt[st] == NULL) { Scierror(999, _("%s: invalid or finalized statement.\n"), fname); return 0; }
     stmt = g_my_stmt[st];
+    if (nbInputArgument(pvApiCtx) >= 3) {
+        SciErr se2 = getVarAddressFromPosition(pvApiCtx, 3, &pmask);
+        if (!se2.iErr && isDoubleType(pvApiCtx, pmask)) { int mm = 0, nn = 0; SciErr se3 = getMatrixOfDouble(pvApiCtx, pmask, &mm, &nn, &mask); if (!se3.iErr) mlen = mm * nn; }
+    }
     se = getVarAddressFromPosition(pvApiCtx, 2, &piAddr);
     if (!se.iErr && isStringType(pvApiCtx, piAddr) && getAllocatedMatrixOfString(pvApiCtx, piAddr, &m, &n, &params) == 0) np = m * n;
     if (np > 0) {
@@ -168,8 +173,12 @@ int sci_db_mysql_run(char* fname, void* pvApiCtx)
         plen  = (unsigned long*)malloc(np * sizeof(unsigned long));
         for (i = 0; i < np; i++) {
             plen[i] = (unsigned long)strlen(params[i]);
-            pbind[i].buffer_type = MYSQL_TYPE_STRING; pbind[i].buffer = params[i];
-            pbind[i].buffer_length = plen[i]; pbind[i].length = &plen[i];
+            if (mask && i < mlen && mask[i] != 0.0) {
+                pbind[i].buffer_type = MYSQL_TYPE_NULL;
+            } else {
+                pbind[i].buffer_type = MYSQL_TYPE_STRING; pbind[i].buffer = params[i];
+                pbind[i].buffer_length = plen[i]; pbind[i].length = &plen[i];
+            }
         }
         mysql_stmt_bind_param(stmt, pbind);
     }

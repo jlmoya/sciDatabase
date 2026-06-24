@@ -180,16 +180,24 @@ int sci_db_sqlite_run(char* fname, void* pvApiCtx)
 {
     double dst = 0.0; int st, m = 0, n = 0, i, np; int* piAddr = NULL; char** params = NULL;
     sqlite3_stmt* stmt; SciErr se;
-    CheckInputArgument(pvApiCtx, 2, 2); CheckOutputArgument(pvApiCtx, 1, 3);
+    double* mask = NULL; int mlen = 0; int* pmask = NULL;
+    CheckInputArgument(pvApiCtx, 2, 3); CheckOutputArgument(pvApiCtx, 1, 3);
     if (sq_get_double(pvApiCtx, 1, &dst)) { Scierror(999, _("%s: first argument must be a statement handle.\n"), fname); return 0; }
     st = (int)dst - 1;
     if (st < 0 || st >= DB_MAXSTMT || g_sq_stmt[st] == NULL) { Scierror(999, _("%s: invalid or finalized statement.\n"), fname); return 0; }
     stmt = g_sq_stmt[st];
     sqlite3_reset(stmt); sqlite3_clear_bindings(stmt);
+    if (nbInputArgument(pvApiCtx) >= 3) {
+        SciErr se2 = getVarAddressFromPosition(pvApiCtx, 3, &pmask);
+        if (!se2.iErr && isDoubleType(pvApiCtx, pmask)) { int mm = 0, nn = 0; SciErr se3 = getMatrixOfDouble(pvApiCtx, pmask, &mm, &nn, &mask); if (!se3.iErr) mlen = mm * nn; }
+    }
     se = getVarAddressFromPosition(pvApiCtx, 2, &piAddr);
     if (!se.iErr && isStringType(pvApiCtx, piAddr) && getAllocatedMatrixOfString(pvApiCtx, piAddr, &m, &n, &params) == 0) {
         np = m * n;
-        for (i = 0; i < np; i++) sqlite3_bind_text(stmt, i + 1, params[i], -1, SQLITE_TRANSIENT);
+        for (i = 0; i < np; i++) {
+            if (mask && i < mlen && mask[i] != 0.0) sqlite3_bind_null(stmt, i + 1);
+            else sqlite3_bind_text(stmt, i + 1, params[i], -1, SQLITE_TRANSIENT);
+        }
         freeAllocatedMatrixOfString(m, n, params);
     }
     sq_collect(pvApiCtx, stmt);
