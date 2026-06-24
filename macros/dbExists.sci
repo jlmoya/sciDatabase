@@ -1,5 +1,6 @@
 function b = dbExists(db, name)
     // Test whether a table (SQL), collection (MongoDB), or key (Redis) exists. Returns %t/%f.
+    scidb_requireConn(db, "dbExists");
     select db.paradigm
     case "sql" then
         select db.engine

@@ -1,6 +1,7 @@
 function t = dbTables(db)
     // List the containers in this connection — tables (SQL), collections (MongoDB), or keys
     // (Redis) — as a string column vector (empty if none). Paradigm-aware.
+    scidb_requireConn(db, "dbTables");
     select db.paradigm
     case "sql" then
         select db.engine
